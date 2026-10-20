@@ -1,0 +1,47 @@
+# Запуск:
+#   docker compose --profile gpu up -d --build   # NVIDIA + nvidia-container-toolkit
+#   docker compose --profile cpu up -d --build   # всё остальное
+# Переопределить модель: MODEL=large-v3 docker compose --profile cpu up -d
+
+x-common: &common
+  build:
+    context: .
+  volumes:
+    - ./models:/models          # кэш моделей, чтобы не качать заново
+  ports:
+    - "127.0.0.1:8000:8000"     # только localhost
+  restart: unless-stopped
+
+services:
+  whisper-gpu:
+    <<: *common
+    profiles: ["gpu"]
+    build:
+      context: .
+      args:
+        GPU: "1"
+    image: whisper-local:gpu
+    environment:
+      MODEL: ${MODEL:-large-v3}       # на GPU берём полную модель: лучше на русском и на коротких фразах
+      DEVICE: cuda
+      COMPUTE_TYPE: float16
+      BEAM_SIZE: ${BEAM_SIZE:-5}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  whisper-cpu:
+    <<: *common
+    profiles: ["cpu"]
+    image: whisper-local:cpu
+    environment:
+      MODEL: ${MODEL:-large-v3-turbo} # на CPU turbo в ~4 раза быстрее при небольшой потере качества
+      DEVICE: cpu
+      COMPUTE_TYPE: int8
+      CPU_THREADS: ${CPU_THREADS:-0}  # 0 = авто; можно выставить число физических ядер
+      BEAM_SIZE: ${BEAM_SIZE:-5}
+
